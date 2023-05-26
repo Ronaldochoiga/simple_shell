@@ -1,153 +1,159 @@
 #include "shell.h"
 
 /**
- * hsh - main loop
- * @inf: fp
- * @av: arg vector main()
+ * hsh - main shell loop
+ * @information: the param & return information struct
+ * @av: the argmnt vector from main()
  *
- * Return: 0, 1 or error code
+ * Return: 0 on success, 1 on error, or error code
  */
-int hsh(inf_t *inf, char **av)
+int hsh(info_t *information, char **av)
 {
-	sst r = 0;
-	int blin_ret = 0;
+	ssize_t z = 0;
+	int bltin_ret = 0;
 
-	while (r != -1 && blin_ret != -2)
+	while (z != -1 && bltin_ret != -2)
 	{
-		clif(inf);
-		if (interactive(inf))
+		clear_info(information);
+		if (interactive(information))
 			_puts("$ ");
-		_epc(BFL);
-		r = get_in(inf);
-		if (r != -1)
+		_eputchar(BUF_FLUSH);
+		z = get_input(information);
+		if (z != -1)
 		{
-			setin(inf, av);
-			blin_ret = find_blin(inf);
-			if (blin_ret == -1)
-				fcmd(inf);
+			set_info(information, av);
+			bltin_ret = find_bltin(information);
+			if (bltin_ret == -1)
+				find_cmd(information);
 		}
-		else if (interactive(inf))
+		else if (interactive(information))
 			_putchar('\n');
-		frinf(inf, 0);
+		free_info(information, 0);
 	}
-	write_hist(inf);
-	frinf(inf, 1);
-	if (!interactive(inf) && inf->sts)
-		exit(inf->sts);
-	if (blin_ret == -2)
+	write_history(information);
+	free_info(information, 1);
+	if (!interactive(information) && information->status)
+		exit(information->status);
+	if (bltin_ret == -2)
 	{
-		if (inf->errn == -1)
-			exit(inf->sts);
-		exit(inf->errn);
+		if (information->err_num == -1)
+			exit(information->status);
+		exit(information->err_num);
 	}
-	return (blin_ret);
+	return (bltin_ret);
 }
 
 /**
- * find_blin - finds a blin comm
- * @inf: fp
+ * find_bltin - fnds a bltin command
+ * @information: the param & return information struct
  *
- * Return: -1, 0, 1, 2,
+ * Return: -1 if bltin not found,
+ * 	0 if bltin executed successfully,
+ * 	1 if bltin found but not successful,
+ * 	2 if bltin signals exit()
  */
-int find_blin(inf_t *inf)
+int find_bltin(info_t *information)
 {
-	int i, bl_in_ret = -1;
-	blin_table blintbl[] = {
-		{"exit", _mxt},
-		{"env", _myv},
-		{"help", _myhp},
-		{"hist", _myhist},
-		{"sev", _mysev},
-		{"unsev", _myunsev},
-		{"cd", _md},
-		{"alias", _myal},
+	int a, blt_in_ret = -1;
+	bltin_table bltintbl[] = {
+		{"exit", _ourexit},
+		{"env", _ourenv},
+		{"help", _ourhelp},
+		{"history", _ourhistory},
+		{"setenv", _oursetenv},
+		{"unsetenv", _ourunsetenv},
+		{"cd", _ourcd},
+		{"alias", _ouralias},
 		{NULL, NULL}
 	};
 
-	for (i = 0; blintbl[i].type; i++)
-		if (_strcmp(inf->argv[0], blintbl[i].type) == 0)
+	for (a = 0; bltintbl[a].type; a++)
+		if (_strcmp(information->argv[0], bltintbl[a].type) == 0)
 		{
-			inf->linco++;
-			bl_in_ret = blintbl[i].func(inf);
+			information->line_count++;
+			blt_in_ret = bltintbl[a].func(information);
 			break;
 		}
-	return (bl_in_ret);
+	return (blt_in_ret);
 }
 
 /**
- * fcmd - gets command from pth
- * @inf: fp
+ * find_cmd - fnds a command in PATH
+ * @information: the param & return information struct
  *
  * Return: void
  */
-void fcmd(inf_t *inf)
+void find_cmd(info_t *information)
 {
-	char *pth = NULL;
-	int j, l;
+	char *path = NULL;
+	int a, g;
 
-	inf->pth = inf->argv[0];
-	if (inf->linecofg == 1)
+	information->path = information->argv[0];
+	if (information->linecount_flag == 1)
 	{
-		inf->linco++;
-		inf->linecofg = 0;
+		information->line_count++;
+		information->linecount_flag = 0;
 	}
-	for (j = 0, l = 0; inf->arg[j]; j++)
-		if (!is_delim(inf->arg[j], " \t\n"))
-			l++;
-	if (!l)
+	for (a = 0, g = 0; information->arg[a]; a++)
+		if (!is_delim(information->arg[a], " \t\n"))
+			g++;
+	if (!g)
 		return;
-	pth = fpth(inf, gev(inf, "PTH="), inf->argv[0]);
-	if (pth)
+
+	path = find_path(information, _gtenv(information, "PATH="), information->argv[0]);
+	if (path)
 	{
-		inf->pth = pth;
-		forkcd(inf);
+		information->path = path;
+		fork_cmd(information);
 	}
 	else
 	{
-		if ((interactive(inf) || gev(inf, "PTH=")
-		     || inf->argv[0][0] == '/') && icmd(inf, inf->argv[0]))
-			forkcd(inf);
-		else if (*(inf->arg) != '\n')
+		if ((interactive(information) || _gtenv(information, "PATH=")
+					|| information->argv[0][0] == '/') && is_cmd(information, information->argv[0]))
+			fork_cmd(information);
+		else if (*(information->arg) != '\n')
 		{
-			inf->sts = 127;
-			printer(inf, "not found\n");
+			information->status = 127;
+			print_error(information, "not found\n");
 		}
 	}
 }
+
 /**
- * forkcd - makes exec thread to be run
- * @inf: struct parameter
+ * fork_cmd - forks a an exec thread to run cmd
+ * @information: the param & return information struct
  *
  * Return: void
  */
-void forkcd(inf_t *inf)
+void fork_cmd(info_t *information)
 {
-	pdt chdpd;
+	pid_t child_pid;
 
-	chdpd = fork();
-	if (chdpd == -1)
+	child_pid = fork();
+	if (child_pid == -1)
 	{
 		perror("Error:");
 		return;
 	}
-	if (chdpd == 0)
+	if (child_pid == 0)
 	{
-		if (execve(inf->pth, inf->argv, get_environ(inf)) == -1)
+		if (execve(information->path, information->argv, get_environ(information)) == -1)
 		{
-			frinf(inf, 1);
+			free_info(information, 1);
 			if (errno == EACCES)
 				exit(126);
 			exit(1);
 		}
+		/* TODO: PUT ERROR fnct */
 	}
 	else
 	{
-		wait(&(inf->sts));
-		if (WIFEXITED(inf->sts))
+		wait(&(information->status));
+		if (WIFEXITED(information->status))
 		{
-			inf->sts = WEXITSTS(inf->sts);
-			if (inf->sts == 126)
-				printer(inf, "Permission denied\n");
+			information->status = WEXITSTATUS(information->status);
+			if (information->status == 126)
+				print_error(information, "Permission denied\n");
 		}
 	}
 }
